@@ -392,7 +392,7 @@ function logout() {
                       <template v-if="!s.empty">
                         <span class="slot-name" :class="rarityClass(s.rarity)">{{ s.name }}</span>
                         <button class="mini" :disabled="busy"
-                                :title="busy ? '操作进行中（busy=true），请稍候或按下方"重置状态"按钮' : `从「${s.slotName}」槽卸下`"
+                                :title="busy ? '操作进行中（busy=true），请稍候或按下方「重置状态」按钮' : `从「${s.slotName}」槽卸下`"
                                 @click.stop="unequipBySlot(s.slot)">卸下</button>
                       </template>
                       <span v-else class="slot-empty">空</span>
