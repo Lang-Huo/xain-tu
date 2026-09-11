@@ -56,5 +56,61 @@ CREATE TABLE IF NOT EXISTS t_map_instance (
 
 -- 地图模板种子（一期只放后山竹林）
 INSERT INTO t_map_template (code, name, recommended_realm, size, max_steps, obstacle_rate, monster_rate, resource_rate, description, created_at)
-SELECT 'BACK_BAMBOO', '后山竹林', 'LIANQI', 8, 60, 12, 10, 10, '入门级秘境，林木森森、灵草散布。偶有低阶妖兽出没，适合练气期弟子初次历练。', CURRENT_TIMESTAMP
+SELECT 'BACK_BAMBOO', '后山竹林', 'LIAN_QI', 8, 60, 12, 10, 10, '入门级秘境，林木森森、灵草散布。偶有低阶妖兽出没，适合练气期弟子初次历练。', CURRENT_TIMESTAMP
 WHERE NOT EXISTS (SELECT 1 FROM t_map_template WHERE code = 'BACK_BAMBOO');
+
+-- 物品定义（M5 背包：一期只放灵草）
+CREATE TABLE IF NOT EXISTS t_item (
+    id            BIGINT       AUTO_INCREMENT PRIMARY KEY             COMMENT '物品主键',
+    code          VARCHAR(50)  NOT NULL UNIQUE                         COMMENT '物品 code',
+    name          VARCHAR(50)  NOT NULL                               COMMENT '物品名',
+    type          VARCHAR(20)  NOT NULL DEFAULT 'MATERIAL'            COMMENT '类型：MATERIAL 材料 / EQUIPMENT 装备 / PILL 丹药 / TECHNIQUE 功法',
+    subtype       VARCHAR(20)                                         COMMENT '子类型（仅 EQUIPMENT/TECHNIQUE 用）：WEAPON 法器 / ARMOR 护身 / STORAGE 储物 / TECHNIQUE 功法',
+    rarity        VARCHAR(20)  NOT NULL DEFAULT 'COMMON'              COMMENT '品阶：COMMON / RARE / EPIC / LEGENDARY',
+    description   VARCHAR(500)                                        COMMENT '描述',
+    attrs_json    VARCHAR(1000)                                       COMMENT '属性 JSON（如 {"consumable":true,"hpRestore":30}）',
+    created_at    TIMESTAMP                                          COMMENT '创建时间'
+) COMMENT '物品定义表';
+
+-- 兼容旧版 schema（已经建过 t_item 没 subtype 列）
+ALTER TABLE t_item ADD COLUMN IF NOT EXISTS subtype VARCHAR(20);
+
+-- 用户背包（每个用户一条）
+CREATE TABLE IF NOT EXISTS t_inventory (
+    id            BIGINT       AUTO_INCREMENT PRIMARY KEY             COMMENT '背包主键',
+    user_id       BIGINT       NOT NULL UNIQUE                        COMMENT '所属用户ID',
+    capacity      INT NOT NULL DEFAULT 30                              COMMENT '格子上限（按物品种类计）',
+    created_at    TIMESTAMP                                          COMMENT '创建时间',
+    updated_at    TIMESTAMP                                          COMMENT '更新时间'
+) COMMENT '用户背包表';
+
+-- 背包物品行
+CREATE TABLE IF NOT EXISTS t_inventory_item (
+    id            BIGINT       AUTO_INCREMENT PRIMARY KEY             COMMENT '行主键',
+    inventory_id  BIGINT       NOT NULL                              COMMENT '所属背包ID',
+    item_id       BIGINT       NOT NULL                              COMMENT '物品定义ID',
+    quantity      INT NOT NULL DEFAULT 1                              COMMENT '数量',
+    UNIQUE (inventory_id, item_id)
+) COMMENT '背包物品行：同背包同物品唯一，数量累加';
+
+-- 装备槽（每个 user 每个 slot 唯一）
+CREATE TABLE IF NOT EXISTS t_user_loadout (
+    id            BIGINT       AUTO_INCREMENT PRIMARY KEY             COMMENT '装备行主键',
+    user_id       BIGINT       NOT NULL                              COMMENT '所属用户ID',
+    slot          VARCHAR(20)  NOT NULL                              COMMENT '槽位：WEAPON 法器 / ARMOR 护身 / STORAGE 储物 / TECHNIQUE 功法',
+    item_id       BIGINT       NOT NULL                              COMMENT '装备物品定义ID',
+    UNIQUE (user_id, slot)
+) COMMENT '用户装备槽：每个用户每个槽位最多 1 件';
+
+-- 物品种子（灵草 / 青竹剑 / 祖布囊）
+INSERT INTO t_item (code, name, type, subtype, rarity, description, attrs_json, created_at)
+SELECT 'LING_CAO',     '灵草',   'MATERIAL',  NULL,        'COMMON', '后山常见的灵草，服用可恢复少量气血，亦可留作作炼作原料。',           '{"consumable":true,"hpRestore":30}',         CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM t_item WHERE code = 'LING_CAO');
+
+INSERT INTO t_item (code, name, type, subtype, rarity, description, attrs_json, created_at)
+SELECT 'QING_ZHU_JIAN','青竹剑', 'EQUIPMENT', 'WEAPON',    'COMMON', '初学者佩剑，轻巧锋利。',                                          NULL,                                          CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM t_item WHERE code = 'QING_ZHU_JIAN');
+
+INSERT INTO t_item (code, name, type, subtype, rarity, description, attrs_json, created_at)
+SELECT 'ZU_BU_NANG',   '祖布囊', 'EQUIPMENT', 'STORAGE',   'COMMON', '祖传布袋，装备后背包容量 +5 格。',                                '{"capacityBonus":5}',                          CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM t_item WHERE code = 'ZU_BU_NANG');

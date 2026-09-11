@@ -23,13 +23,16 @@ public class UserService {
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final LoadoutService loadoutService;
 
     public UserService(UserMapper userMapper,
                        PasswordEncoder passwordEncoder,
-                       JwtUtil jwtUtil) {
+                       JwtUtil jwtUtil,
+                       LoadoutService loadoutService) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
+        this.loadoutService = loadoutService;
     }
 
     public AuthResponse register(RegisterRequest req) {
@@ -50,6 +53,12 @@ public class UserService {
         user.setSpiritRoots(new ArrayList<>());
         user.setCreatedAt(LocalDateTime.now());
         userMapper.insert(user);
+        // 给新用户装上初始装备（青竹剑 / 祖布囊）
+        try {
+            loadoutService.equipStarterLoadout(user.getId());
+        } catch (BizException e) {
+            // 初始装备失败不应该阻塞注册；留 log
+        }
         return AuthResponse.of(jwtUtil.generate(user.getUsername()), user);
     }
 

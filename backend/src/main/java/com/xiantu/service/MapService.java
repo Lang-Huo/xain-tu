@@ -32,6 +32,7 @@ import java.util.concurrent.ThreadLocalRandom;
 public class MapService {
 
     private static final String RESOURCE_NAME = "灵草";   // 一期只一种资源
+    private static final String RESOURCE_CODE = "LING_CAO"; // 与 t_item.code 对齐
     private static final String MONSTER_NAME = "后山妖鼠"; // 一期只一种野怪
     private static final int MONSTER_LEVEL = 3;
 
@@ -40,17 +41,20 @@ public class MapService {
     private final UserMapper userMapper;
     private final MapGenerator generator;
     private final FogService fogService;
+    private final InventoryCoreService inventoryCoreService;
 
     public MapService(MapTemplateMapper templateMapper,
                        MapInstanceMapper instanceMapper,
                        UserMapper userMapper,
                        MapGenerator generator,
-                       FogService fogService) {
+                       FogService fogService,
+                       InventoryCoreService inventoryCoreService) {
         this.templateMapper = templateMapper;
         this.instanceMapper = instanceMapper;
         this.userMapper = userMapper;
         this.generator = generator;
         this.fogService = fogService;
+        this.inventoryCoreService = inventoryCoreService;
     }
 
     /** 列出可用的地图模板（前端展示）。 */
@@ -178,10 +182,23 @@ public class MapService {
 
         switch (cellType) {
             case RESOURCE: {
-                // 采集并标记为空
+                // 采集：先尝试入背包；若失败（背包满）也照常前进，但消息里带上失败原因。
                 if (!inst.getConsumed().contains(key)) inst.getConsumed().add(key);
+                boolean added = false;
+                String addErr = null;
+                try {
+                    inventoryCoreService.addItem(user.getId(), RESOURCE_CODE, 1);
+                    added = true;
+                } catch (BizException e) {
+                    addErr = e.getMessage();
+                }
                 resp.setEvent("RESOURCE_COLLECTED");
-                resp.setMessage("采集到「" + RESOURCE_NAME + "」×1");
+                if (added) {
+                    resp.setMessage("采集到「" + RESOURCE_NAME + "」×1");
+                } else {
+                    String reason = (addErr == null || addErr.isEmpty()) ? "未入背包" : addErr;
+                    resp.setMessage("采集到「" + RESOURCE_NAME + "」×1，但 " + reason);
+                }
                 resp.setResourceName(RESOURCE_NAME);
                 break;
             }

@@ -5,6 +5,7 @@ import Register from './views/Register.vue'
 import Home from './views/Home.vue'
 import SpiritRootTest from './views/SpiritRootTest.vue'
 import Map from './views/Map.vue'
+import Inventory from './views/Inventory.vue'
 import InkBackground from './components/InkBackground.vue'
 
 const token = ref(localStorage.getItem('token'))
@@ -28,12 +29,16 @@ function goMap(templateCode) {
   pendingTemplateCode.value = templateCode || ''
   view.value = 'map'
 }
+
+function goInventory() {
+  view.value = 'inventory'
+}
 </script>
 
 <template>
   <InkBackground />
 
-  <div class="app">
+  <div class="app" :class="{ wide: token }">
     <header>
       <div class="brand">
         <span class="seal">仙</span>
@@ -43,10 +48,12 @@ function goMap(templateCode) {
     </header>
 
     <template v-if="token">
-      <Home v-if="view === 'home'" @logout="onLogout" @go-test="view = 'test'" @enter-map="goMap" />
+      <Home v-if="view === 'home'" @logout="onLogout" @go-test="view = 'test'"
+            @enter-map="goMap" @go-inventory="goInventory" />
       <SpiritRootTest v-else-if="view === 'test'" @done="view = 'home'" @cancel="view = 'home'" />
       <Map v-else-if="view === 'map'" :template-code="pendingTemplateCode"
            @exit="view = 'home'" @back="view = 'home'" />
+      <Inventory v-else-if="view === 'inventory'" @back="view = 'home'" />
     </template>
 
     <template v-else>
@@ -63,7 +70,10 @@ function goMap(templateCode) {
   max-width: 720px; margin: 0 auto; padding: 32px 20px 60px;
   position: relative; z-index: 1;          /* 浮于水墨背景之上 */
   animation: inkIn .7s ease-out both;      /* 墨落宣纸的入场 */
+  transition: max-width .25s ease;
 }
+/* 「我的」页含行囊两栏布局时放宽容器（仿 xiuxian .app.wide） */
+.app.wide { max-width: 1080px; }
 header { text-align: center; margin-bottom: 22px; position: relative; }
 .brand { display: inline-flex; align-items: center; gap: 12px; justify-content: center; }
 .seal {
