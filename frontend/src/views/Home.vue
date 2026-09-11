@@ -2,12 +2,13 @@
 import { ref, computed, onMounted } from 'vue'
 import http from '../api/http'
 
-const emit = defineEmits(['logout', 'goTest'])
+const emit = defineEmits(['logout', 'goTest', 'enterMap'])
 const user = ref(null)
 const loading = ref(true)
 const error = ref('')
+const tab = ref('me')   // 'me' | 'map'
 
-// 灵根（无主副之分；灵根只决定可修炼的功法，无加成/稀有度/颜色等属性）
+// -------- 我的（profile）相关 --------
 const rootList = computed(() => user.value?.spiritRoots || [])
 const rootNames = computed(() => rootList.value.map(r => r.name).join(' · '))
 const rootDesc = computed(() => {
@@ -16,10 +17,6 @@ const rootDesc = computed(() => {
   if (list.length === 1) return '已觉醒「' + list[0].name + '」灵根。'
   return '已觉醒 ' + list.length + ' 灵根之体：' + rootNames.value + '。'
 })
-// 灵根一行展示（昵称下方）：
-//   1 个：name + 「灵根」            →「金灵根」
-//   2 个：name1+name2 + 「双灵根」   →「金木双灵根」
-//   3+ 个：count + 「灵根」           →「三灵根」「五灵根」
 const CHINESE_NUMS = ['', '一', '二', '三', '四', '五', '六', '七', '八']
 const rootsSummary = computed(() => {
   const list = rootList.value
@@ -29,7 +26,6 @@ const rootsSummary = computed(() => {
   if (n === 2) return list.map(r => r.name).join('') + '双灵根'
   return (CHINESE_NUMS[n] || String(n)) + '灵根'
 })
-// 昵称首字
 const initial = computed(() => (user.value?.nickname || user.value?.username || '修').charAt(0))
 const hpPct = computed(() =>
   user.value ? Math.max(0, Math.min(100, (user.value.hp / user.value.maxHp) * 100)) : 0
@@ -37,6 +33,13 @@ const hpPct = computed(() =>
 const manaPct = computed(() =>
   user.value ? Math.max(0, Math.min(100, (user.value.mana / user.value.maxMana) * 100)) : 0
 )
+
+// -------- 探索秘境相关 --------
+const templates = ref([])
+const activeInst = ref(null)
+const mapLoading = ref(false)
+const mapError = ref('')
+const mapLoaded = ref(false)
 
 onMounted(async () => {
   try {
@@ -49,8 +52,51 @@ onMounted(async () => {
   }
 })
 
+async function switchTab(name) {
+  if (tab.value === name) return
+  tab.value = name
+  if (name === 'map' && !mapLoaded.value) {
+    await loadMapTab()
+  }
+}
+
+async function loadMapTab() {
+  mapLoading.value = true
+  mapError.value = ''
+  try {
+    const [tplRes, actRes] = await Promise.all([
+      http.get('/map/templates'),
+      // active 可能 404 / null，统一容错
+      http.get('/map/active').catch(() => ({ data: { data: null } }))
+    ])
+    templates.value = tplRes.data.data || []
+    activeInst.value = actRes.data.data || null
+    mapLoaded.value = true
+  } catch (e) {
+    mapError.value = e.response?.data?.message || '加载秘境失败'
+  } finally {
+    mapLoading.value = false
+  }
+}
+
+async function enterMap(code) {
+  if (activeInst.value && activeInst.value.templateCode !== code) {
+    if (!confirm(`你正在探索【${activeInst.value.templateName}】，开始新的探索将放弃当前进度，是否继续？`)) return
+    try {
+      await http.post('/map/abandon', null, { params: { instanceId: activeInst.value.instanceId } })
+    } catch (e) { /* ignore */ }
+    localStorage.removeItem('mapInstanceId')
+  }
+  emit('enterMap', code)
+}
+
+function resumeMap() {
+  emit('enterMap', '')   // 空 code → Map.vue 按 localStorage 恢复
+}
+
 function logout() {
   localStorage.removeItem('token')
+  localStorage.removeItem('mapInstanceId')
   emit('logout')
 }
 </script>
@@ -61,63 +107,122 @@ function logout() {
     <p v-else-if="error" class="error">{{ error }}</p>
 
     <template v-else-if="user">
-      <!-- 名帖 -->
-      <section class="panel namecard">
-        <div class="avatar-lg">{{ initial }}</div>
-        <div class="who">
-          <div class="nick">
-            {{ user.nickname }}
-            <span class="badge">{{ user.realmDisplayName || user.realmCode }}</span>
+      <!-- 顶部 Tab 栏 -->
+      <nav class="tabs">
+        <button class="tab" :class="{ active: tab === 'me' }" @click="switchTab('me')">
+          <i class="tab-mark">我</i>我的
+        </button>
+        <button class="tab" :class="{ active: tab === 'map' }" @click="switchTab('map')">
+          <i class="tab-mark">探</i>探索秘境
+        </button>
+      </nav>
+
+      <!-- ============== 我的 ============== -->
+      <template v-if="tab === 'me'">
+        <!-- 名帖 -->
+        <section class="panel namecard">
+          <div class="avatar-lg">{{ initial }}</div>
+          <div class="who">
+            <div class="nick">
+              {{ user.nickname }}
+              <span class="badge">{{ user.realmDisplayName || user.realmCode }}</span>
+            </div>
+            <div v-if="rootsSummary" class="roots-line">{{ rootsSummary }}</div>
+            <div class="title">神识 {{ user.spiritualSense }} · 修为 {{ user.exp }}</div>
+            <div class="sub">道号 {{ user.username }} · 仙途编号 #{{ user.userNumber }}</div>
           </div>
-          <div v-if="rootsSummary" class="roots-line">{{ rootsSummary }}</div>
-          <div class="title">神识 {{ user.spiritualSense }} · 修为 {{ user.exp }}</div>
-          <div class="sub">道号 {{ user.username }} · 仙途编号 #{{ user.userNumber }}</div>
-        </div>
-        <button class="mini" @click="logout">退出</button>
-      </section>
-
-      <!-- 灵根（已觉醒时不再展示——名帖下方一行已带简述；未觉醒时给出提示） -->
-      <section v-if="rootList.length === 0" class="panel root-card" :class="{ untested: rootList.length === 0 }">
-        <div class="r-name" :class="{ muted: rootList.length === 0 }">
-          {{ rootNames || '灵根未定' }}
-          <span v-if="rootList.length >= 2" class="r-tag">{{ rootList.length }} 灵根之体</span>
-        </div>
-        <p class="r-desc">{{ rootDesc }}</p>
-      </section>
-
-      <!-- 未测灵根 CTA -->
-      <section v-if="rootList.length === 0" class="panel cta">
-        <div class="cta-seal">测</div>
-        <h3 class="cta-title">你尚未觉醒灵根</h3>
-        <p class="cta-desc">前往灵台答 5 道题，觉醒 1 个或 2 个灵根，决定日后可修炼的功法。</p>
-        <button class="btn primary big" @click="emit('goTest')">前往测灵根</button>
-      </section>
-
-      <!-- 道身属性 + 战力 -->
-      <div class="cols">
-        <section class="panel">
-          <h3>道身属性</h3>
-          <dl class="kv">
-            <div><dt>境界</dt><dd>{{ user.realmDisplayName || user.realmCode }}</dd></div>
-            <div><dt>灵根</dt><dd>{{ rootNames || '未定' }}</dd></div>
-            <div><dt>神识</dt><dd>{{ user.spiritualSense }}</dd></div>
-            <div><dt>修为</dt><dd class="uno">{{ user.exp }}</dd></div>
-          </dl>
+          <button class="mini" @click="logout">退出</button>
         </section>
 
-        <section class="panel">
-          <h3>战力</h3>
-          <div class="row"><span class="label">气血</span><span class="val">{{ user.hp }} / {{ user.maxHp }}</span></div>
-          <div class="bar"><div class="fill hp" :style="{ width: hpPct + '%' }"></div></div>
-          <div class="row"><span class="label">灵力</span><span class="val">{{ user.mana }} / {{ user.maxMana }}</span></div>
-          <div class="bar"><div class="fill mp" :style="{ width: manaPct + '%' }"></div></div>
-          <div class="row"><span class="label">攻击</span><span class="val">{{ user.attack }}</span></div>
-          <div class="row"><span class="label">防御</span><span class="val">{{ user.defense }}</span></div>
-          <div class="row"><span class="label">身法</span><span class="val">{{ user.speed }}</span></div>
+        <!-- 灵根（已觉醒时不再展示） -->
+        <section v-if="rootList.length === 0" class="panel root-card" :class="{ untested: rootList.length === 0 }">
+          <div class="r-name" :class="{ muted: rootList.length === 0 }">
+            {{ rootNames || '灵根未定' }}
+            <span v-if="rootList.length >= 2" class="r-tag">{{ rootList.length }} 灵根之体</span>
+          </div>
+          <p class="r-desc">{{ rootDesc }}</p>
         </section>
-      </div>
 
-      <button class="btn refresh" @click="logout">退出登录</button>
+        <!-- 未测灵根 CTA -->
+        <section v-if="rootList.length === 0" class="panel cta">
+          <div class="cta-seal">测</div>
+          <h3 class="cta-title">你尚未觉醒灵根</h3>
+          <p class="cta-desc">前往灵台答 5 道题，觉醒 1 个或 2 个灵根，决定日后可修炼的功法。</p>
+          <button class="btn primary big" @click="emit('goTest')">前往测灵根</button>
+        </section>
+
+        <!-- 道身属性 + 战力 -->
+        <div class="cols">
+          <section class="panel">
+            <h3>道身属性</h3>
+            <dl class="kv">
+              <div><dt>境界</dt><dd>{{ user.realmDisplayName || user.realmCode }}</dd></div>
+              <div><dt>灵根</dt><dd>{{ rootNames || '未定' }}</dd></div>
+              <div><dt>神识</dt><dd>{{ user.spiritualSense }}</dd></div>
+              <div><dt>修为</dt><dd class="uno">{{ user.exp }}</dd></div>
+            </dl>
+          </section>
+
+          <section class="panel">
+            <h3>战力</h3>
+            <div class="row"><span class="label">气血</span><span class="val">{{ user.hp }} / {{ user.maxHp }}</span></div>
+            <div class="bar"><div class="fill hp" :style="{ width: hpPct + '%' }"></div></div>
+            <div class="row"><span class="label">灵力</span><span class="val">{{ user.mana }} / {{ user.maxMana }}</span></div>
+            <div class="bar"><div class="fill mp" :style="{ width: manaPct + '%' }"></div></div>
+            <div class="row"><span class="label">攻击</span><span class="val">{{ user.attack }}</span></div>
+            <div class="row"><span class="label">防御</span><span class="val">{{ user.defense }}</span></div>
+            <div class="row"><span class="label">身法</span><span class="val">{{ user.speed }}</span></div>
+          </section>
+        </div>
+
+        <button class="btn refresh" @click="logout">退出登录</button>
+      </template>
+
+      <!-- ============== 探索秘境 ============== -->
+      <template v-else-if="tab === 'map'">
+        <p v-if="mapLoading" class="tip">正在寻找秘境入口…</p>
+        <p v-else-if="mapError" class="error">{{ mapError }}</p>
+        <template v-else>
+          <!-- 继续上次探索 -->
+          <section v-if="activeInst" class="panel resume-card">
+            <div class="re-seal">续</div>
+            <div class="re-text">
+              <h3>继续上次探索</h3>
+              <p>
+                <b>{{ activeInst.templateName }}</b>
+                · 步数 {{ activeInst.stepCount }} / {{ activeInst.maxSteps }}
+                · 神识半径 {{ activeInst.radius }}
+              </p>
+            </div>
+            <button class="btn primary big" @click="resumeMap">继续</button>
+          </section>
+
+          <!-- 模板列表 -->
+          <h3 class="section-title">选择秘境</h3>
+          <div v-if="templates.length === 0" class="empty">暂无可用秘境</div>
+          <div v-else class="map-list">
+            <article v-for="t in templates" :key="t.id" class="panel map-card">
+              <div class="mc-head">
+                <h4>{{ t.name }}</h4>
+                <span class="realm-tag">{{ t.recommendedRealmName || t.recommendedRealm }}</span>
+              </div>
+              <p class="mc-desc">{{ t.description }}</p>
+              <div class="mc-meta">
+                <span>{{ t.size }}×{{ t.size }} 地图</span>
+                <span class="dot-sep">·</span>
+                <span>{{ t.maxSteps }} 步上限</span>
+                <span class="dot-sep">·</span>
+                <span>岩 {{ t.obstacleRate }}%</span>
+                <span class="dot-sep">·</span>
+                <span>妖 {{ t.monsterRate }}%</span>
+                <span class="dot-sep">·</span>
+                <span>草 {{ t.resourceRate }}%</span>
+              </div>
+              <button class="btn primary big" @click="enterMap(t.code)">进入秘境</button>
+            </article>
+          </div>
+        </template>
+      </template>
     </template>
   </div>
 </template>
@@ -126,6 +231,7 @@ function logout() {
 .profile { animation: inkIn .5s ease-out both; }
 .tip { text-align: center; color: var(--ink-light); font-size: 14px; padding: 18px 0; }
 .error { color: var(--seal); text-align: center; margin-top: 16px; font-size: 14px; }
+.empty { text-align: center; color: var(--ink-light); padding: 30px 0; font-size: 13px; letter-spacing: 2px; }
 
 .panel {
   position: relative; overflow: hidden; background: rgba(255,255,255,.55);
@@ -135,12 +241,51 @@ function logout() {
 }
 .panel::before {
   content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: radial-gradient(ellipse 60% 45% at 16% 0%, rgba(31,29,26,.05), transparent 62%);
+  background: radial-gradient(ellipse 60%45% at 16% 0%, rgba(31,29,26,.05), transparent 62%);
 }
 .panel > * { position: relative; }
 h3 {
   margin: 0 0 14px; font-size: 15px; color: var(--ink); letter-spacing: 2px;
   border-left: 3px solid var(--ink); padding-left: 10px; line-height: 1.2;
+}
+
+/* ---------- Tab 栏 ---------- */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 18px;
+  position: relative;
+}
+.tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 12px 0 10px;
+  font-size: 14px;
+  color: var(--ink-light);
+  letter-spacing: 4px;
+  font-family: inherit;
+  cursor: pointer;
+  position: relative;
+  transition: color .2s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.tab:hover { color: var(--ink); }
+.tab.active { color: var(--seal); font-weight: 700; }
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: 50%; bottom: -1px;
+  transform: translateX(-50%);
+  width: 36px; height: 2px;
+  background: var(--seal);
+  border-radius: 1px;
+}
+.tab-mark {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; font-size: 11px; font-weight: 700;
+  border: 1px solid currentColor; border-radius: 3px;
+  letter-spacing: 0;
 }
 
 /* 名帖 */
@@ -221,6 +366,52 @@ dd.uno { color: var(--seal); letter-spacing: 2px; font-variant-numeric: tabular-
 .bar .fill { height: 100%; border-radius: 2px; transition: width .4s ease; }
 .bar .fill.hp { background: linear-gradient(90deg, #c4897f, var(--seal)); }
 .bar .fill.mp { background: linear-gradient(90deg, #7fa8c4, #2f6f9e); }
+
+/* ---------- 探索秘境 tab ---------- */
+.section-title {
+  font-size: 14px; color: var(--ink); letter-spacing: 4px;
+  margin: 4px 0 12px; padding-left: 10px;
+  border-left: 3px solid var(--ink); line-height: 1.2;
+}
+.resume-card {
+  display: flex; align-items: center; gap: 14px; padding: 18px 22px;
+  background: rgba(45,107,58,.06); border-color: #2d6b3a;
+}
+.re-seal {
+  flex: none; width: 44px; height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 2px solid #2d6b3a; color: #2d6b3a;
+  font-size: 20px; font-weight: 700; border-radius: 5px;
+  background: rgba(45,107,58,.10); transform: rotate(-3deg);
+}
+.re-text { flex: 1; min-width: 0; }
+.re-text h3 {
+  margin: 0; font-size: 16px; color: #2d6b3a; letter-spacing: 2px;
+  border: none; padding: 0; font-weight: 700;
+}
+.re-text p { margin: 4px 0 0; font-size: 12px; color: var(--ink-soft); letter-spacing: 1px; }
+.resume-card .btn { flex: none; }
+
+.map-list { display: grid; gap: 14px; }
+.map-card { padding: 18px 22px; }
+.mc-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  border-bottom: 1px dashed var(--line);
+  padding-bottom: 8px; margin-bottom: 10px;
+}
+.mc-head h4 {
+  margin: 0; font-size: 18px; color: var(--ink);
+  letter-spacing: 3px; font-weight: 700;
+}
+.realm-tag {
+  font-size: 11px; padding: 2px 8px; border-radius: 2px;
+  background: var(--seal); color: #fff;
+  letter-spacing: 2px; font-weight: 600;
+}
+.mc-desc { margin: 0 0 10px; color: var(--ink-soft); font-size: 13px; line-height: 1.7; letter-spacing: 1px; }
+.mc-meta { font-size: 12px; color: var(--ink-light); letter-spacing: 1px; margin-bottom: 14px; }
+.mc-meta .dot-sep { color: var(--line); margin: 0 4px; }
+.map-card .btn { display: block; margin: 0 auto; min-width: 140px; }
 
 .btn { border: 1px solid var(--ink); border-radius: 4px; padding: 9px 20px; font-size: 14px;
   background: transparent; color: var(--ink); font-family: inherit; transition: all .2s; }

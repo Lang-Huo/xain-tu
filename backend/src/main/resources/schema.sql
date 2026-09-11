@@ -20,3 +20,41 @@ CREATE TABLE IF NOT EXISTS t_user (
     exp               BIGINT       NOT NULL                       COMMENT '修为/经验值',
     created_at        TIMESTAMP                                    COMMENT '账号创建时间'
 ) COMMENT '用户表：账号、灵根、境界（code+level9层制）、战斗属性与修为';
+
+-- 地图模板
+CREATE TABLE IF NOT EXISTS t_map_template (
+    id                BIGINT       AUTO_INCREMENT PRIMARY KEY       COMMENT '模板主键',
+    code              VARCHAR(50)  NOT NULL UNIQUE                   COMMENT '模板 code（前端传这个）',
+    name              VARCHAR(50)  NOT NULL                         COMMENT '模板展示名（如「后山竹林」）',
+    recommended_realm VARCHAR(20)  NOT NULL DEFAULT 'LIANQI'        COMMENT '推荐境界 code',
+    size              INT          NOT NULL DEFAULT 8                COMMENT 'N：地图边长（N×N 格）',
+    max_steps         INT          NOT NULL DEFAULT 60               COMMENT '单次探索步数上限',
+    obstacle_rate     INT          NOT NULL DEFAULT 12               COMMENT '障碍物占比 %（0-100）',
+    monster_rate      INT          NOT NULL DEFAULT 10               COMMENT '野怪占比 %（0-100）',
+    resource_rate     INT          NOT NULL DEFAULT 10               COMMENT '资源占比 %（0-100）',
+    description       VARCHAR(500)                                  COMMENT '描述',
+    created_at        TIMESTAMP                                    COMMENT '创建时间'
+) COMMENT '地图模板表：定义秘境难度与生成参数';
+
+-- 地图实例（每次进入一条）
+CREATE TABLE IF NOT EXISTS t_map_instance (
+    id                BIGINT       AUTO_INCREMENT PRIMARY KEY       COMMENT '实例主键',
+    user_id           BIGINT       NOT NULL                         COMMENT '所属用户ID',
+    template_id       BIGINT       NOT NULL                         COMMENT '模板ID',
+    template_code     VARCHAR(50)  NOT NULL                         COMMENT '模板 code（冗余便于查）',
+    seed              BIGINT       NOT NULL                         COMMENT '随机种子（地图布局由此唯一决定）',
+    pos_x             INT          NOT NULL DEFAULT 0                COMMENT '玩家当前 X 坐标',
+    pos_y             INT          NOT NULL DEFAULT 0                COMMENT '玩家当前 Y 坐标',
+    step_count        INT          NOT NULL DEFAULT 0                COMMENT '已走步数',
+    max_steps         INT          NOT NULL DEFAULT 60               COMMENT '步数上限（冗余模板字段）',
+    status            VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE'         COMMENT '状态：ACTIVE 进行中 / COMPLETED 通关 / ABANDONED 主动放弃',
+    explored_json     VARCHAR(2000)                                 COMMENT '已探索过的格子 "x,y" 列表 JSON（用于记忆地形 / 迷雾）',
+    consumed_json     VARCHAR(2000)                                 COMMENT '已采集 / 已清空的格子 "x,y" 列表 JSON（资源格变空后存这里）',
+    created_at        TIMESTAMP                                    COMMENT '创建时间',
+    updated_at        TIMESTAMP                                    COMMENT '更新时间'
+) COMMENT '地图实例表：每个用户每次探索一条（最多一条 ACTIVE）';
+
+-- 地图模板种子（一期只放后山竹林）
+INSERT INTO t_map_template (code, name, recommended_realm, size, max_steps, obstacle_rate, monster_rate, resource_rate, description, created_at)
+SELECT 'BACK_BAMBOO', '后山竹林', 'LIANQI', 8, 60, 12, 10, 10, '入门级秘境，林木森森、灵草散布。偶有低阶妖兽出没，适合练气期弟子初次历练。', CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM t_map_template WHERE code = 'BACK_BAMBOO');

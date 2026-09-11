@@ -4,10 +4,13 @@ import Login from './views/Login.vue'
 import Register from './views/Register.vue'
 import Home from './views/Home.vue'
 import SpiritRootTest from './views/SpiritRootTest.vue'
+import Map from './views/Map.vue'
 import InkBackground from './components/InkBackground.vue'
 
 const token = ref(localStorage.getItem('token'))
 const view = ref(token.value ? 'home' : 'login')
+// 进入秘境时携带的模板 code（map 视图按这个决定是新建实例还是恢复旧实例）
+const pendingTemplateCode = ref('')
 
 function onLogged() {
   token.value = localStorage.getItem('token')
@@ -17,6 +20,13 @@ function onLogged() {
 function onLogout() {
   token.value = null
   view.value = 'login'
+  // 清掉地图记忆
+  localStorage.removeItem('mapInstanceId')
+}
+
+function goMap(templateCode) {
+  pendingTemplateCode.value = templateCode || ''
+  view.value = 'map'
 }
 </script>
 
@@ -33,8 +43,10 @@ function onLogout() {
     </header>
 
     <template v-if="token">
-      <Home v-if="view === 'home'" @logout="onLogout" @go-test="view = 'test'" />
+      <Home v-if="view === 'home'" @logout="onLogout" @go-test="view = 'test'" @enter-map="goMap" />
       <SpiritRootTest v-else-if="view === 'test'" @done="view = 'home'" @cancel="view = 'home'" />
+      <Map v-else-if="view === 'map'" :template-code="pendingTemplateCode"
+           @exit="view = 'home'" @back="view = 'home'" />
     </template>
 
     <template v-else>
