@@ -139,6 +139,7 @@ public class InventoryService {
         v.setCode(item.getCode());
         v.setName(item.getName());
         v.setType(item.getType());
+        v.setSubtype(item.getSubtype());
         v.setRarity(item.getRarity());
         v.setDescription(item.getDescription());
         v.setAttrsJson(item.getAttrsJson());

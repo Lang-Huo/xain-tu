@@ -56,8 +56,9 @@ public class UserService {
         // 给新用户装上初始装备（青竹剑 / 祖布囊）
         try {
             loadoutService.equipStarterLoadout(user.getId());
-        } catch (BizException e) {
-            // 初始装备失败不应该阻塞注册；留 log
+        } catch (Exception e) {
+            // 初始装备失败不应该阻塞注册；但要留 stack trace 便于排查
+            e.printStackTrace();
         }
         return AuthResponse.of(jwtUtil.generate(user.getUsername()), user);
     }

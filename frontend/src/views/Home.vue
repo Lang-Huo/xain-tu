@@ -1,4 +1,8 @@
 <script setup>
+// Home.vue 版本戳 v2：装备槽可点击 + 详情面板 subtype + equippedSlotOf + 后端 InventoryItemView.subtype
+// 如果 F12 Console 看不到下面的 BUILD_TAG，请 Ctrl+Shift+R 强制刷新（清 Vite HMR 缓存）
+const BUILD_TAG = 'HOME-V2-2026-09-11T18:15'
+console.info('[Home] build tag:', BUILD_TAG)
 import { ref, computed, onMounted } from 'vue'
 import http from '../api/http'
 
@@ -47,7 +51,7 @@ const invLoading = ref(true)
 const invError = ref('')
 const filter = ref('ALL')
 const selectedCode = ref(null)
-const busy = ref('')
+const busy = ref(false)
 const notice = ref('')
 
 const TYPE_LABELS = {
@@ -105,7 +109,21 @@ const cells = computed(() => {
 })
 const selected = computed(() => {
   if (!selectedCode.value || !inv.value) return null
-  return inv.value.items.find(i => i.code === selectedCode.value) || null
+  // 先从背包找（行囊选中的物品）
+  const inBag = inv.value.items.find(i => i.code === selectedCode.value)
+  if (inBag) return inBag
+  // 找不到时尝试从 loadout 找（点了装备槽里的物品，但行囊里没有这件）
+  const slot = inv.value.loadout.find(s => !s.empty && s.code === selectedCode.value)
+  if (slot) {
+    // 构造一个伪物品对象给详情面板显示；标记 inLoadoutOnly 让面板提示用户
+    return {
+      itemId: slot.itemId, code: slot.code, name: slot.name, type: 'EQUIPMENT',
+      subtype: slot.slot, rarity: slot.rarity, description: slot.description,
+      attrsJson: '', consumable: false, hpRestore: 0, capacityBonus: 0,
+      quantity: 1, _inLoadoutOnly: true
+    }
+  }
+  return null
 })
 
 function effectText(it) {
@@ -122,43 +140,81 @@ function pick(cell) {
   invError.value = ''
 }
 
+/** 点装备槽里的物品 → 选中（让 selectedCode 与行囊内该物品联动，详情面板聚焦） */
+function pickFromLoadout(slot) {
+  if (slot.empty) return
+  selectedCode.value = selectedCode.value === slot.code ? null : slot.code
+  notice.value = ''
+  invError.value = ''
+}
+
 async function invAct(fn, successMsg) {
-  if (busy.value) return
-  busy.value = '1'
+  if (busy.value) {
+    console.warn('[Home→行囊] 上一次操作还没结束（busy=', busy.value, '），忽略本次点击')
+    return
+  }
+  busy.value = true
   invError.value = ''
   notice.value = ''
   try {
-    await fn()
+    // 加超时保护：10 秒还没响应就强制释放 busy（避免 HTTP 卡死时永远禁用按钮）
+    const result = await Promise.race([
+      fn(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('请求超时（10s）')), 10000))
+    ])
     notice.value = successMsg || '操作成功'
     await loadInv()
   } catch (e) {
-    invError.value = e.response?.data?.message || '操作失败'
+    console.error('[Home→行囊] 操作失败:', e)
+    invError.value = (e.response?.data?.message || e.message || '操作失败')
+      + (e.response?.status ? `（HTTP ${e.response.status}）` : '')
   } finally {
-    busy.value = ''
+    busy.value = false
   }
 }
 
 async function useItem(it) {
+  console.info('[Home→行囊] useItem:', it.code, it.name)
   await invAct(() => http.post('/inventory/use', { itemCode: it.code }),
                `服用「${it.name}」+气血 ${it.hpRestore}`)
 }
 async function equipItem(it) {
+  console.info('[Home→行囊] equipItem:', it.code, it.name, 'type=', it.type, 'subtype=', it.subtype)
   await invAct(() => http.post('/inventory/equip', { itemCode: it.code }),
                `已装备「${it.name}」`)
+  console.info('[Home→行囊] equipItem 完成')
 }
 async function unequipBySlot(slot) {
-  await invAct(() => http.post('/inventory/unequip', { slot }), `已卸下，回到行囊`)
+  console.info('[Home→行囊] unequipBySlot:', slot)
+  await invAct(() => http.post('/inventory/unequip', { slot }), `已卸下「${slot}」槽装备`)
 }
 async function unequipFromDetail(it) {
+  console.info('[Home→行囊] unequipFromDetail:', it.code)
   const slot = inv.value.loadout.find(s => !s.empty && s.code === it.code)
   if (slot) await unequipBySlot(slot.slot)
+  else console.warn('[Home→行囊] unequipFromDetail: 找不到对应槽位, it.code=', it.code)
 }
 
 const isPill = (i) => i && i.type === 'PILL'
 const isEquip = (i) => i && (i.type === 'EQUIPMENT' || i.type === 'TECHNIQUE')
 function rarityClass(r) { return 'r-' + (r || 'COMMON').toLowerCase() }
+/** 装备槽位 code → 显示名（与后端 UserLoadout.slotName 一致） */
+const SLOT_LABELS = { WEAPON: '法器', ARMOR: '护身', STORAGE: '储物', TECHNIQUE: '功法' }
+function slotName(code) { return SLOT_LABELS[code] || code || '' }
+/** 找物品当前装备在哪个槽位（不在槽里返回 null） */
+const equippedSlotOf = (item) => {
+  if (!item || !inv.value) return null
+  return inv.value.loadout.find(s => !s.empty && s.code === item.code) || null
+}
+/** 装备按钮 disabled 的原因（null 表示不禁用） */
+const equipDisabledReason = computed(() => {
+  if (busy.value) return '上一次操作还没结束（busy=' + busy.value + '）'
+  return null
+})
 
 onMounted(async () => {
+  // 防止 Vite HMR 残留 busy 状态（之前用 ref('') 时 '1' 残留会让按钮永远 disabled）
+  busy.value = false
   try {
     const { data } = await http.get('/user/me')
     user.value = data.data
@@ -328,17 +384,22 @@ function logout() {
               <section class="panel">
                 <h3>已佩戴</h3>
                 <div class="slots">
-                  <div v-for="s in inv.loadout" :key="s.slot" class="slot" :class="{ filled: !s.empty }">
+                  <div v-for="s in inv.loadout" :key="s.slot" class="slot" :class="{ filled: !s.empty, active: !s.empty && selectedCode === s.code }"
+                       :style="!s.empty ? { cursor: 'pointer' } : {}"
+                       @click="!s.empty && pickFromLoadout(s)">
                     <div class="slot-label">{{ s.slotName }}</div>
                     <div class="slot-body">
                       <template v-if="!s.empty">
                         <span class="slot-name" :class="rarityClass(s.rarity)">{{ s.name }}</span>
-                        <button class="mini" :disabled="busy" @click="unequipBySlot(s.slot)">卸下</button>
+                        <button class="mini" :disabled="busy"
+                                :title="busy ? '操作进行中（busy=true），请稍候或按下方"重置状态"按钮' : `从「${s.slotName}」槽卸下`"
+                                @click.stop="unequipBySlot(s.slot)">卸下</button>
                       </template>
                       <span v-else class="slot-empty">空</span>
                     </div>
                   </div>
                 </div>
+                <p v-if="busy" class="busy-hint">操作进行中… <button class="mini inline" @click="busy = false">重置状态</button></p>
               </section>
 
               <!-- 行囊 -->
@@ -385,19 +446,30 @@ function logout() {
                     </div>
                     <div class="d-sub">
                       {{ TYPE_LABELS[selected.type] || selected.type }}
+                      <template v-if="isEquip(selected) && selected.subtype"> · {{ slotName(selected.subtype) }}类</template>
                       <template v-if="selected.quantity > 1"> · 持有 {{ selected.quantity }}</template>
+                      <template v-if="isEquip(selected)">
+                        · <span :class="equippedCodes.has(selected.code) ? 'worn-tag' : 'unworn-tag'">
+                          {{ equippedCodes.has(selected.code) ? '已装备于「' + slotName(equippedSlotOf(selected)?.slot) + '」槽' : '未装备' }}
+                        </span>
+                      </template>
                     </div>
                   </div>
                 </div>
                 <p class="d-desc">{{ selected.description }}</p>
                 <div class="d-effect">{{ effectText(selected) }}</div>
+                <p v-if="selected._inLoadoutOnly" class="hint-line">此物现装备于「{{ slotName(selected.subtype) }}」槽，先卸下再操作。</p>
                 <div class="d-actions">
                   <button v-if="isPill(selected) && selected.consumable"
                           class="btn primary" :disabled="busy" @click="useItem(selected)">服用</button>
                   <button v-if="isEquip(selected) && !equippedCodes.has(selected.code)"
-                          class="btn" :disabled="busy" @click="equipItem(selected)">装备</button>
+                          class="btn" :disabled="busy"
+                          :title="equipDisabledReason || `装到「${slotName(selected.subtype)}」槽`"
+                          @click="equipItem(selected)">装备</button>
                   <button v-if="isEquip(selected) && equippedCodes.has(selected.code)"
-                          class="btn" :disabled="busy" @click="unequipFromDetail(selected)">卸下</button>
+                          class="btn" :disabled="busy"
+                          :title="equipDisabledReason || `从「${slotName(equippedSlotOf(selected)?.slot)}」槽卸下`"
+                          @click="unequipFromDetail(selected)">卸下</button>
                 </div>
               </section>
 
@@ -560,10 +632,28 @@ h3 {
 .slots { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .slot { border: 1px dashed var(--line); border-radius: 4px; padding: 10px 12px; background: rgba(255,255,255,.4); transition: border-color .2s; }
 .slot.filled { border-style: solid; border-color: var(--ink-soft); }
+.slot.active { border-color: var(--seal); background: rgba(158,59,52,.06); box-shadow: 0 0 0 2px rgba(158,59,52,.12); }
 .slot-label { font-size: 12px; color: var(--ink-light); letter-spacing: 2px; }
 .slot-body { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .slot-name { font-size: 14px; font-weight: 600; letter-spacing: 1px; }
 .slot-empty { font-size: 13px; color: var(--ink-light); }
+.worn-tag { color: #2d6b3a; font-weight: 600; }
+.unworn-tag { color: var(--ink-light); }
+.hint-line {
+  margin: 6px 0 0; padding: 6px 10px; font-size: 12px; letter-spacing: 1px;
+  color: var(--ink-light); background: rgba(31,29,26,.04);
+  border: 1px dashed var(--line); border-radius: 3px; text-align: center;
+}
+.busy-hint {
+  margin: 8px 0 0; padding: 6px 10px; font-size: 12px;
+  color: var(--seal); background: rgba(158,59,52,.06);
+  border: 1px dashed var(--seal); border-radius: 3px; text-align: center;
+}
+.busy-hint .mini.inline {
+  margin-left: 8px; padding: 2px 10px; font-size: 11px;
+  border: 1px solid var(--seal); background: transparent; color: var(--seal);
+  border-radius: 3px; cursor: pointer;
+}
 .mini {
   border: 1px solid var(--line); background: transparent; color: var(--ink-light);
   border-radius: 3px; font-size: 12px; padding: 2px 8px; font-family: inherit;

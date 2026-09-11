@@ -12,6 +12,7 @@ public class InventoryItemView {
     private String code;
     private String name;
     private String type;            // MATERIAL/EQUIPMENT/PILL/TECHNIQUE
+    private String subtype;         // 仅 EQUIPMENT/TECHNIQUE 用：WEAPON/ARMOR/STORAGE/TECHNIQUE；前端据此显示「目标槽位」与「装备约束」
     private String rarity;          // COMMON/RARE/...
     private String description;
     private String attrsJson;

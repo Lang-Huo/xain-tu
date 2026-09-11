@@ -107,6 +107,11 @@ public class LoadoutService {
         UserLoadout existing = loadoutMapper.selectByUserAndSlot(userId, slot);
         if (existing != null) {
             Item old = itemMapper.selectById(existing.getItemId());
+            // 防御：用户手动改数据库可能导致 item_id 指向不存在的物品；不让 NPE 拖崩事务
+            if (old == null) {
+                throw new BizException("槽位上的旧装备定义已丢失（item_id=" + existing.getItemId()
+                        + " 在 t_item 中不存在），请先手动清理 t_user_loadout");
+            }
             // addItem 容量满则抛 BizException；外层事务回滚，刚刚 removeItem 的也会恢复
             inventoryCoreService.addItem(userId, old.getCode(), 1);
             loadoutMapper.deleteById(existing.getId());
@@ -128,7 +133,12 @@ public class LoadoutService {
             throw new BizException("该槽位本就空着");
         }
         Item item = itemMapper.selectById(existing.getItemId());
-        // 退回背包（addItem 容量满时抛 BizException，外层事务整体回滚）
+        // 防御：用户手动改数据库可能导致 item_id 指向不存在的物品；不让 NPE 拖崩事务
+        if (item == null) {
+            throw new BizException("装备槽「" + slot + "」上的物品定义已丢失（item_id=" + existing.getItemId()
+                    + " 在 t_item 中不存在），无法退回。请手动清理 t_user_loadout 中的脏数据。");
+        }
+        // 退回背包（addItem 容量满时抛 BizException，外层事务整体回滚——这是设计如此，避免装备丢失）
         inventoryCoreService.addItem(userId, item.getCode(), 1);
         loadoutMapper.deleteById(existing.getId());
     }
@@ -148,6 +158,10 @@ public class LoadoutService {
     /** 注册时给新用户装上初始装备（青竹剑 → 法器、祖布囊 → 储物）。 */
     @Transactional
     public void equipStarterLoadout(Long userId) {
+        // ⚠️ equip 第一步是 removeItem，但新用户背包为空；
+        // 必须先把物品塞进背包，再 equip（equip 内部 removeItem 成功 + 写 loadout）。
+        inventoryCoreService.addItem(userId, "QING_ZHU_JIAN", 1);
+        inventoryCoreService.addItem(userId, "ZU_BU_NANG", 1);
         equip(userId, "QING_ZHU_JIAN");
         equip(userId, "ZU_BU_NANG");
     }
