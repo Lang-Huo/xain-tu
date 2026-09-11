@@ -1,0 +1,90 @@
+<script setup>
+import { ref } from 'vue'
+import Login from './views/Login.vue'
+import Register from './views/Register.vue'
+import Home from './views/Home.vue'
+import SpiritRootTest from './views/SpiritRootTest.vue'
+import InkBackground from './components/InkBackground.vue'
+
+const token = ref(localStorage.getItem('token'))
+const view = ref(token.value ? 'home' : 'login')
+
+function onLogged() {
+  token.value = localStorage.getItem('token')
+  view.value = 'home'
+}
+
+function onLogout() {
+  token.value = null
+  view.value = 'login'
+}
+</script>
+
+<template>
+  <InkBackground />
+
+  <div class="app">
+    <header>
+      <div class="brand">
+        <span class="seal">仙</span>
+        <h1>修仙录</h1>
+      </div>
+      <p class="sub">测灵根 · 探秘境 · 战妖兽 · 炼丹修仙</p>
+    </header>
+
+    <template v-if="token">
+      <Home v-if="view === 'home'" @logout="onLogout" @go-test="view = 'test'" />
+      <SpiritRootTest v-else-if="view === 'test'" @done="view = 'home'" @cancel="view = 'home'" />
+    </template>
+
+    <template v-else>
+      <Login v-if="view === 'login'" @switch="view = 'register'" @logged="onLogged" />
+      <Register v-else @switch="view = 'login'" @logged="onLogged" />
+    </template>
+
+    <footer>修仙录 MVP · 后端 Spring Boot + MyBatis-Plus + H2 · 前端 Vue3</footer>
+  </div>
+</template>
+
+<style scoped>
+.app {
+  max-width: 720px; margin: 0 auto; padding: 32px 20px 60px;
+  position: relative; z-index: 1;          /* 浮于水墨背景之上 */
+  animation: inkIn .7s ease-out both;      /* 墨落宣纸的入场 */
+}
+header { text-align: center; margin-bottom: 22px; position: relative; }
+.brand { display: inline-flex; align-items: center; gap: 12px; justify-content: center; }
+.seal {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border: 2px solid var(--seal); color: var(--seal);
+  font-size: 20px; font-weight: 700; border-radius: 5px; background: rgba(158,59,52,.06);
+  line-height: 1; transform: rotate(-4deg);
+  box-shadow: 0 0 0 3px rgba(158,59,52,.05), 0 1px 6px rgba(158,59,52,.18);
+  animation: sealStamp .8s .15s cubic-bezier(.2,.8,.3,1) both;
+}
+h1 {
+  margin: 0; font-size: 30px; letter-spacing: 6px; color: var(--ink); font-weight: 700;
+  position: relative; padding-bottom: 12px;
+}
+/* 标题笔触：一道由左扫出的墨线 */
+h1::after {
+  content: ""; position: absolute; left: 6%; right: 6%; bottom: 2px; height: 3px;
+  border-radius: 50%; transform-origin: left center;
+  background: linear-gradient(90deg,
+    transparent, rgba(31,29,26,.5) 8%, rgba(31,29,26,.18) 45%, rgba(31,29,26,.55) 80%, transparent);
+  filter: blur(.4px);
+  animation: brushSweep .9s .25s ease-out both;
+}
+.sub { color: var(--ink-light); font-size: 14px; margin-top: 8px; letter-spacing: 1px; }
+
+/* 登录/注册通过各页面内的链接互跳，无 tab 样式 */
+
+footer {
+  text-align: center; color: var(--ink-light); font-size: 12px;
+  margin-top: 36px; padding-top: 18px; letter-spacing: 1px; position: relative;
+}
+footer::before {
+  content: ""; position: absolute; top: 0; left: 22%; right: 22%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(31,29,26,.2), transparent);
+}
+</style>
