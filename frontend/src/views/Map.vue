@@ -6,7 +6,7 @@ const props = defineProps({
   /** 入图时传的模板 code（如 'BACK_BAMBOO'）；为空时尝试恢复上次的实例（按 localStorage） */
   templateCode: { type: String, default: '' }
 })
-const emit = defineEmits(['exit', 'back'])
+const emit = defineEmits(['exit', 'back', 'combat'])
 
 const canvasRef = ref(null)
 const state = ref(null)
@@ -84,6 +84,10 @@ async function move(dir) {
       flash('good', resp.message || '采集到资源')
     } else if (resp.event === 'MONSTER_ENCOUNTER') {
       flash('danger', resp.message || '遭遇野怪')
+      // M4：触发战斗，交给 App.vue 切换到 Combat.vue
+      if (resp.combatId) {
+        emit('combat', resp.combatId)
+      }
     } else if (resp.event === 'EXIT_REACHED') {
       flash('good', resp.message || '通关！')
       setTimeout(() => {

@@ -6,6 +6,7 @@ import Home from './views/Home.vue'
 import SpiritRootTest from './views/SpiritRootTest.vue'
 import Map from './views/Map.vue'
 import Inventory from './views/Inventory.vue'
+import Combat from './views/Combat.vue'
 import InkBackground from './components/InkBackground.vue'
 
 const token = ref(localStorage.getItem('token'))
@@ -33,6 +34,19 @@ function goMap(templateCode) {
 function goInventory() {
   view.value = 'inventory'
 }
+
+function enterCombat(combatId) {
+  localStorage.setItem('combatId', String(combatId))
+  view.value = 'combat'
+}
+
+function exitCombat() {
+  localStorage.removeItem('combatId')
+  // 清掉 pendingTemplateCode，让回到 Map.vue 时走 localStorage 恢复路径
+  // 而不是 /api/map/enter 开新实例
+  pendingTemplateCode.value = ''
+  view.value = 'map'
+}
 </script>
 
 <template>
@@ -52,8 +66,10 @@ function goInventory() {
             @enter-map="goMap" @go-inventory="goInventory" />
       <SpiritRootTest v-else-if="view === 'test'" @done="view = 'home'" @cancel="view = 'home'" />
       <Map v-else-if="view === 'map'" :template-code="pendingTemplateCode"
-           @exit="view = 'home'" @back="view = 'home'" />
+           @exit="view = 'home'" @back="view = 'home'"
+           @combat="enterCombat" />
       <Inventory v-else-if="view === 'inventory'" @back="view = 'home'" />
+      <Combat v-else-if="view === 'combat'" @exit="exitCombat" />
     </template>
 
     <template v-else>

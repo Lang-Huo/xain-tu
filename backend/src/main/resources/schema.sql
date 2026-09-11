@@ -114,3 +114,73 @@ WHERE NOT EXISTS (SELECT 1 FROM t_item WHERE code = 'QING_ZHU_JIAN');
 INSERT INTO t_item (code, name, type, subtype, rarity, description, attrs_json, created_at)
 SELECT 'ZU_BU_NANG',   '祖布囊', 'EQUIPMENT', 'STORAGE',   'COMMON', '祖传布袋，装备后背包容量 +5 格。',                                '{"capacityBonus":5}',                          CURRENT_TIMESTAMP
 WHERE NOT EXISTS (SELECT 1 FROM t_item WHERE code = 'ZU_BU_NANG');
+
+-- ============================================================
+-- M4 战斗系统
+-- ============================================================
+
+-- 怪物定义（每个怪物一种；通过 code 引用）
+CREATE TABLE IF NOT EXISTS t_monster (
+    id            BIGINT       AUTO_INCREMENT PRIMARY KEY             COMMENT '怪物主键',
+    code          VARCHAR(50)  NOT NULL UNIQUE                         COMMENT '怪物 code',
+    name          VARCHAR(50)  NOT NULL                               COMMENT '怪物名',
+    level         INT          NOT NULL DEFAULT 1                      COMMENT '怪物等级（影响数值与掉率）',
+    hp            INT          NOT NULL                               COMMENT '气血上限',
+    attack        INT          NOT NULL                               COMMENT '攻击力',
+    defense       INT          NOT NULL                               COMMENT '防御力',
+    speed         INT          NOT NULL                               COMMENT '身法（出手顺序 + 玩家逃跑概率）',
+    exp_reward    INT          NOT NULL DEFAULT 0                      COMMENT '胜利获得修为',
+    drop_item_code VARCHAR(50)                                        COMMENT '胜利固定掉落物品 code（NULL 表示不掉）',
+    drop_quantity INT          NOT NULL DEFAULT 1                      COMMENT '掉落数量',
+    flee_blocked  INT          NOT NULL DEFAULT 0                      COMMENT '是否禁止逃跑：1 禁止 / 0 允许',
+    description   VARCHAR(500)                                        COMMENT '描述',
+    created_at    TIMESTAMP                                          COMMENT '创建时间'
+) COMMENT '怪物定义表';
+
+-- 战斗状态（一期每次移动触发，最多一条 ACTIVE；结束后转为 FINISHED）
+CREATE TABLE IF NOT EXISTS t_combat (
+    id                BIGINT       AUTO_INCREMENT PRIMARY KEY         COMMENT '战斗主键',
+    user_id           BIGINT       NOT NULL                           COMMENT '所属用户ID',
+    map_instance_id   BIGINT       NOT NULL                           COMMENT '所属地图实例ID',
+    monster_code      VARCHAR(50)  NOT NULL                           COMMENT '怪物 code',
+    monster_name      VARCHAR(50)  NOT NULL                           COMMENT '怪物名（冗余便于展示）',
+    monster_hp        INT          NOT NULL                           COMMENT '怪物当前 HP',
+    monster_max_hp    INT          NOT NULL                           COMMENT '怪物 HP 上限（冗余）',
+    monster_attack    INT          NOT NULL                           COMMENT '怪物攻击力（冗余）',
+    monster_defense   INT          NOT NULL                           COMMENT '怪物防御力（冗余）',
+    monster_speed     INT          NOT NULL                           COMMENT '怪物速度（冗余）',
+    player_hp         INT          NOT NULL                           COMMENT '玩家当前 HP（战斗临时，不直接回写 User）',
+    player_hp_snapshot INT          NOT NULL                           COMMENT '进入战斗时玩家 HP 快照（结束结算用）',
+    player_attack     INT          NOT NULL                           COMMENT '玩家攻击（进入战斗时快照）',
+    player_defense    INT          NOT NULL                           COMMENT '玩家防御（进入战斗时快照）',
+    player_speed      INT          NOT NULL                           COMMENT '玩家速度（进入战斗时快照）',
+    round             INT          NOT NULL DEFAULT 1                  COMMENT '当前回合数',
+    current_turn      VARCHAR(20)  NOT NULL DEFAULT 'PLAYER'           COMMENT '本回合行动方 PLAYER / MONSTER',
+    log_json         VARCHAR(4000)                                    COMMENT '战斗日志 JSON 数组（每回合一条）',
+    status            VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE'           COMMENT '状态：ACTIVE 进行中 / FINISHED 已结束',
+    result            VARCHAR(20)                                      COMMENT '结果：VICTORY 胜利 / DEFEAT 失败 / FLED 逃跑；FINISHED 后才有',
+    created_at        TIMESTAMP                                       COMMENT '创建时间',
+    updated_at        TIMESTAMP                                       COMMENT '更新时间'
+) COMMENT '战斗状态表：一期只在玩家移动到 MONSTER 格时创建，结束后置为 FINISHED';
+
+-- 战斗记录（每场战斗一行，仅作历史）
+CREATE TABLE IF NOT EXISTS t_combat_log (
+    id                BIGINT       AUTO_INCREMENT PRIMARY KEY         COMMENT '记录主键',
+    user_id           BIGINT       NOT NULL                           COMMENT '所属用户ID',
+    map_instance_id   BIGINT       NOT NULL                           COMMENT '所属地图实例ID',
+    monster_code      VARCHAR(50)  NOT NULL                           COMMENT '怪物 code',
+    monster_name      VARCHAR(50)  NOT NULL                           COMMENT '怪物名（冗余）',
+    result            VARCHAR(20)  NOT NULL                           COMMENT '结果：VICTORY / DEFEAT / FLED',
+    rounds            INT          NOT NULL                           COMMENT '回合数',
+    exp_gained        INT          NOT NULL DEFAULT 0                  COMMENT '获得修为',
+    dropped_item_code VARCHAR(50)                                     COMMENT '掉落物品 code（NULL = 没掉）',
+    dropped_quantity  INT          NOT NULL DEFAULT 0                  COMMENT '掉落数量',
+    created_at        TIMESTAMP                                       COMMENT '创建时间'
+) COMMENT '战斗记录表：每场战斗一行，永久保留';
+
+-- 怪物种子（一期只放后山妖鼠）
+INSERT INTO t_monster (code, name, level, hp, attack, defense, speed, exp_reward, drop_item_code, drop_quantity, flee_blocked, description, created_at)
+SELECT 'HOU_SHAN_YAO_SHU', '后山妖鼠', 3, 80, 12, 5, 8, 10, 'LING_CAO', 1, 0,
+       '后山竹林常见的小妖，獠牙锋利但行动略显迟缓。练气初期可胜之。',
+       CURRENT_TIMESTAMP
+WHERE NOT EXISTS (SELECT 1 FROM t_monster WHERE code = 'HOU_SHAN_YAO_SHU');

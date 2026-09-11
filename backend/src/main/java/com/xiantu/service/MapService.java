@@ -10,6 +10,7 @@ import com.xiantu.mapper.MapInstanceMapper;
 import com.xiantu.mapper.MapTemplateMapper;
 import com.xiantu.mapper.UserMapper;
 import com.xiantu.web.dto.CellView;
+import com.xiantu.web.dto.CombatStateResponse;
 import com.xiantu.web.dto.MapMoveResponse;
 import com.xiantu.web.dto.MapStateResponse;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,7 @@ public class MapService {
     private static final String RESOURCE_NAME = "灵草";   // 一期只一种资源
     private static final String RESOURCE_CODE = "LING_CAO"; // 与 t_item.code 对齐
     private static final String MONSTER_NAME = "后山妖鼠"; // 一期只一种野怪
+    private static final String MONSTER_CODE = "HOU_SHAN_YAO_SHU"; // 与 t_monster.code 对齐
     private static final int MONSTER_LEVEL = 3;
 
     private final MapTemplateMapper templateMapper;
@@ -42,19 +44,22 @@ public class MapService {
     private final MapGenerator generator;
     private final FogService fogService;
     private final InventoryCoreService inventoryCoreService;
+    private final CombatService combatService;
 
     public MapService(MapTemplateMapper templateMapper,
                        MapInstanceMapper instanceMapper,
                        UserMapper userMapper,
                        MapGenerator generator,
                        FogService fogService,
-                       InventoryCoreService inventoryCoreService) {
+                       InventoryCoreService inventoryCoreService,
+                       CombatService combatService) {
         this.templateMapper = templateMapper;
         this.instanceMapper = instanceMapper;
         this.userMapper = userMapper;
         this.generator = generator;
         this.fogService = fogService;
         this.inventoryCoreService = inventoryCoreService;
+        this.combatService = combatService;
     }
 
     /** 列出可用的地图模板（前端展示）。 */
@@ -203,11 +208,13 @@ public class MapService {
                 break;
             }
             case MONSTER: {
-                // 野怪保留（M3 占位，不实装战斗）
+                // M4 战斗触发：调用 CombatService 创建战斗；玩家位置照常前进到 MONSTER 格
+                CombatStateResponse combat = combatService.startCombat(username, inst.getId(), MONSTER_CODE);
                 resp.setEvent("MONSTER_ENCOUNTER");
-                resp.setMessage("遭遇「" + MONSTER_NAME + "」！战斗系统将于 M4 实装");
+                resp.setMessage("遭遇「" + MONSTER_NAME + "」！进入战斗");
                 resp.setMonsterName(MONSTER_NAME);
                 resp.setMonsterLevel(MONSTER_LEVEL);
+                resp.setCombatId(combat.getCombatId());
                 break;
             }
             case EXIT: {

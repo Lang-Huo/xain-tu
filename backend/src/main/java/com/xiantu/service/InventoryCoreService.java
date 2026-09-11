@@ -110,4 +110,17 @@ public class InventoryCoreService {
         if (inv == null) return Collections.emptyList();
         return inventoryItemMapper.selectByInventoryId(inv.getId());
     }
+
+    /**
+     * 查背包里指定物品 code 的数量。返回 0 表示"没有这种物品"或"背包不存在"。
+     * 主要给战斗等高频场景用，避免 listItems 后再过滤。
+     */
+    public int countItem(Long userId, String itemCode) {
+        Inventory inv = inventoryMapper.selectByUserId(userId);
+        if (inv == null) return 0;
+        Item item = itemMapper.selectByCode(itemCode);
+        if (item == null) return 0;
+        InventoryItem row = inventoryItemMapper.selectByInventoryAndItem(inv.getId(), item.getId());
+        return row == null ? 0 : row.getQuantity();
+    }
 }
